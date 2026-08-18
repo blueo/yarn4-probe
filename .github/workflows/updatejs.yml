@@ -1,0 +1,81 @@
+name: updatejs
+on: [push, workflow_dispatch]
+jobs:
+  updatejs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout linkfield yarn4 branch (stands in for the module being updated)
+        uses: actions/checkout@v4
+        with:
+          repository: blueo/silverstripe-linkfield
+          ref: yarn4-verify
+
+      - name: Read .nvmrc
+        id: read-nvm
+        shell: bash
+        run: echo "version=$(cat .nvmrc)" >> $GITHUB_OUTPUT
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.read-nvm.outputs.version }}
+
+      # ---- verbatim from gha-update-js#47 "Enable corepack" ----
+      - name: Enable corepack
+        shell: bash
+        run: |
+          if [[ $(jq -r '.packageManager // empty' package.json) != yarn@4.* ]]; then
+            echo 'package.json must declare "packageManager": "yarn@4.x.y" - this action only supports yarn 4 via corepack'
+            exit 1
+          fi
+          corepack enable
+          echo "node: $(node -v) / corepack: $(corepack -v)"
+
+      # ---- verbatim from gha-update-js#47 "Install admin JS" ----
+      - name: Install admin JS
+        shell: bash
+        env:
+          ADMIN_BRANCH: "3"
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+          YARN_NETWORK_CONCURRENCY: "1"
+        run: |
+          DIR=$(pwd)
+          cd ..
+          git clone https://github.com/silverstripe/silverstripe-admin.git admin
+          cd admin
+          git checkout $ADMIN_BRANCH
+          echo "### admin yarn version: $(yarn -v)"
+          yarn install --immutable
+          echo "### admin install exit: $?"
+          cd $DIR
+
+      # ---- verbatim from gha-update-js#47 "Update yarn.lock" ----
+      - name: Update yarn.lock
+        shell: bash
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+          YARN_NETWORK_CONCURRENCY: "1"
+        run: |
+          if [[ -f yarn.lock ]]; then
+            rm yarn.lock
+          fi
+          echo "### module yarn version: $(yarn -v)"
+          yarn install --no-immutable
+
+      - name: Yarn lint
+        shell: bash
+        run: yarn lint
+
+      - name: Yarn test
+        shell: bash
+        run: yarn test
+
+      - name: Build JS with webpack
+        shell: bash
+        run: yarn build
+
+      - name: Show what changed
+        shell: bash
+        run: |
+          git status --porcelain | head -30
+          echo "### lockfile version line:"; head -n 5 yarn.lock
