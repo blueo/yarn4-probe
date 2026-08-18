@@ -1,0 +1,51 @@
+name: probe
+on: [push, workflow_dispatch]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install nvm + node 18 exactly like gha-run-tests does
+        shell: bash
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+          YARN_ENABLE_SCRIPTS: "false"
+          YARN_NETWORK_CONCURRENCY: "1"
+        run: |
+          export NVM_DIR="${HOME}/.nvm"
+          [[ -d "$NVM_DIR" ]] || mkdir $NVM_DIR
+          curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+          . "$NVM_DIR/nvm.sh" --no-use
+          echo "18" > .nvmrc
+          nvm install
+          nvm use
+          echo "::group::versions"
+          echo "node: $(node -v)"
+          echo "npm:  $(npm -v)"
+          echo "corepack bundled: $(corepack -v)"
+          echo "::endgroup::"
+
+          echo "=============================================================="
+          echo "TEST A: silverstripe/admin as it is TODAY (yarn1 lock, no packageManager)"
+          echo "=============================================================="
+          git clone -q --depth 1 -b 3 https://github.com/silverstripe/silverstripe-admin.git admin
+          cd admin
+          echo "packageManager field: '$(jq -r '.packageManager // "ABSENT"' package.json)'"
+          echo "yarn.lock first line: $(head -n 1 yarn.lock)"
+          corepack enable || echo "corepack enable FAILED rc=$?"
+          echo "--- which yarn: $(which yarn)"
+          echo "--- yarn -v ---"
+          yarn -v || echo "yarn -v FAILED rc=$?"
+          echo "--- yarn install --immutable (this is the exact command in the PR) ---"
+          set +e
+          yarn install --immutable
+          echo "### TEST A EXIT CODE: $?"
+          set -e
+          cd ..
+
+          echo "=============================================================="
+          echo "TEST B: corepack default resolution with NO packageManager at all"
+          echo "=============================================================="
+          mkdir -p plain && cd plain
+          echo '{"name":"plain","private":true}' > package.json
+          echo "yarn -v resolves to: $(yarn -v 2>&1 | tail -1)"
+          cd ..
