@@ -1,0 +1,5 @@
+name: callci
+on: [push, workflow_dispatch]
+jobs:
+  ci:
+    uses: blueo/gha-ci/.github/workflows/ci.yml@yarn4-verify
